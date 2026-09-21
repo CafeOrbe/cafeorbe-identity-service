@@ -1,0 +1,30 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: identity-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/identity_db}
+    username: ${DB_USER:identity}
+    password: ${DB_PASSWORD:identity}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USER:cafeorbe}
+    password: ${RABBIT_PASSWORD:cafeorbe}
+
+cafeorbe:
+  jwt:
+    secret: ${JWT_SECRET:cafeorbe-dev-jwt-secret-cambiar-en-prod-0123456789}
+    horas-de-vida: 8
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
