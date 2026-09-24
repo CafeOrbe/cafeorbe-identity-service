@@ -1,0 +1,33 @@
+name: CI identity-service
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          # Autenticación contra GitHub Packages para resolver cafeorbe-contracts
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: ${{ secrets.PACKAGES_TOKEN }}
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-
+
+      - name: Build and test
+        run: mvn -B verify

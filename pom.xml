@@ -100,4 +100,24 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- Resuelve cafeorbe-contracts desde GitHub Packages SOLO en CI (GitHub Actions define CI=true).
+         Localmente se usa el jar del .m2 (mvn install en cafeorbe-contracts). -->
+    <profiles>
+        <profile>
+            <id>ci</id>
+            <activation>
+                <property>
+                    <name>env.CI</name>
+                    <value>true</value>
+                </property>
+            </activation>
+            <repositories>
+                <repository>
+                    <id>github</id>
+                    <url>https://maven.pkg.github.com/CafeOrbe/cafeorbe-contracts</url>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
 </project>
