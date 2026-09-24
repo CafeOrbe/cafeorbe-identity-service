@@ -16,10 +16,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          # Autenticación contra GitHub Packages para resolver cafeorbe-contracts
-          server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: ${{ secrets.PACKAGES_TOKEN }}
 
       - name: Cache Maven dependencies
         uses: actions/cache@v4
@@ -28,6 +24,13 @@ jobs:
           key: m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             m2-
+
+      # contracts es un repo público: se compila e instala en el .m2 del runner.
+      # Así no hace falta token ni registry (GitHub Packages Maven no es proxy).
+      - name: Build cafeorbe-contracts
+        run: |
+          git clone --depth 1 https://github.com/CafeOrbe/cafeorbe-contracts.git /tmp/contracts
+          cd /tmp/contracts && mvn -B install
 
       - name: Build and test
         run: mvn -B verify
