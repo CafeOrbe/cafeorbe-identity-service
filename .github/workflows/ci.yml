@@ -152,7 +152,17 @@ jobs:
             --query properties.configuration.ingress.fqdn \
             --output tsv)
 
-          curl --fail --show-error --silent "https://$URL/actuator/health"
+          # Spring Boot tarda 60-90s en arrancar: reintenta hasta 3 min
+          for i in $(seq 1 12); do
+            if curl --fail --show-error --silent "https://$URL/actuator/health" 2>/dev/null; then
+              echo "Health UP en intento $i"
+              exit 0
+            fi
+            echo "Intento $i: aún no listo, esperando 15s..."
+            sleep 15
+          done
+          echo "Health no respondió tras 12 intentos"
+          exit 1
 
   deploy-prod:
     needs: build-push
@@ -236,4 +246,14 @@ jobs:
             --query properties.configuration.ingress.fqdn \
             --output tsv)
 
-          curl --fail --show-error --silent "https://$URL/actuator/health"
+          # Spring Boot tarda 60-90s en arrancar: reintenta hasta 3 min
+          for i in $(seq 1 12); do
+            if curl --fail --show-error --silent "https://$URL/actuator/health" 2>/dev/null; then
+              echo "Health UP en intento $i"
+              exit 0
+            fi
+            echo "Intento $i: aún no listo, esperando 15s..."
+            sleep 15
+          done
+          echo "Health no respondió tras 12 intentos"
+          exit 1
