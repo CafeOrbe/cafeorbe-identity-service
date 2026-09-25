@@ -80,29 +80,71 @@ jobs:
         with:
           creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
-      - uses: Azure/container-apps-deploy-action@v2
-        with:
-          acrName: ${{ secrets.ACR_NAME }}
-          imageToDeploy: ${{ secrets.ACR_NAME }}.azurecr.io/identity-service:${{ github.sha }}
-          containerAppName: identity-service
-          containerAppEnvironment: cafeorbe-qa
-          resourceGroup: cafeorbe-org
-          ingress: external
-          targetPort: 8081
-          environmentVariables: >-
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db
-            DB_USER=cafeorbe
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            RABBIT_HOST=rabbitmq-qa
-            RABBIT_USER=cafeorbe
-            RABBIT_PASSWORD=${{ secrets.RABBIT_PASSWORD }}
+      - name: Deploy QA Container App
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          RABBIT_PASSWORD: ${{ secrets.RABBIT_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          APP_NAME="identity-service"
+          RESOURCE_GROUP="cafeorbe-org"
+          CONTAINER_ENV="cafeorbe-qa"
+          IMAGE="${{ secrets.ACR_NAME }}.azurecr.io/identity-service:${{ github.sha }}"
+
+          az extension add --name containerapp --upgrade --only-show-errors
+
+          if az containerapp show \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --only-show-errors >/dev/null 2>&1; then
+
+            az containerapp update \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --image "$IMAGE" \
+              --set-env-vars \
+                "JWT_SECRET=$JWT_SECRET" \
+                "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db" \
+                "DB_USER=cafeorbe" \
+                "DB_PASSWORD=$DB_PASSWORD" \
+                "RABBIT_HOST=rabbitmq-qa" \
+                "RABBIT_USER=cafeorbe" \
+                "RABBIT_PASSWORD=$RABBIT_PASSWORD"
+
+          else
+
+            az containerapp create \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --environment "$CONTAINER_ENV" \
+              --image "$IMAGE" \
+              --ingress external \
+              --target-port 8081 \
+              --registry-server "${{ secrets.ACR_NAME }}.azurecr.io" \
+              --registry-username "${{ secrets.ACR_USERNAME }}" \
+              --registry-password "${{ secrets.ACR_PASSWORD }}" \
+              --env-vars \
+                "JWT_SECRET=$JWT_SECRET" \
+                "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db" \
+                "DB_USER=cafeorbe" \
+                "DB_PASSWORD=$DB_PASSWORD" \
+                "RABBIT_HOST=rabbitmq-qa" \
+                "RABBIT_USER=cafeorbe" \
+                "RABBIT_PASSWORD=$RABBIT_PASSWORD"
+
+          fi
 
       - name: Smoke test
         run: |
-          URL=$(az containerapp show -n identity-service -g cafeorbe-org \
-                --query properties.configuration.ingress.fqdn -o tsv)
-          curl -fsS "https://$URL/actuator/health"
+          URL=$(az containerapp show \
+            --name identity-service \
+            --resource-group cafeorbe-org \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+
+          curl --fail --show-error --silent "https://$URL/actuator/health"
 
   deploy-prod:
     needs: build-push
@@ -114,26 +156,68 @@ jobs:
         with:
           creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
-      - uses: Azure/container-apps-deploy-action@v2
-        with:
-          acrName: ${{ secrets.ACR_NAME }}
-          imageToDeploy: ${{ secrets.ACR_NAME }}.azurecr.io/identity-service:${{ github.sha }}
-          containerAppName: identity-service-prod
-          containerAppEnvironment: cafeorbe-prod
-          resourceGroup: cafeorbe-org
-          ingress: external
-          targetPort: 8081
-          environmentVariables: >-
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db
-            DB_USER=cafeorbe
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            RABBIT_HOST=rabbitmq-prod
-            RABBIT_USER=cafeorbe
-            RABBIT_PASSWORD=${{ secrets.RABBIT_PASSWORD }}
+      - name: Deploy PROD Container App
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          RABBIT_PASSWORD: ${{ secrets.RABBIT_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          APP_NAME="identity-service-prod"
+          RESOURCE_GROUP="cafeorbe-org"
+          CONTAINER_ENV="cafeorbe-prod"
+          IMAGE="${{ secrets.ACR_NAME }}.azurecr.io/identity-service:${{ github.sha }}"
+
+          az extension add --name containerapp --upgrade --only-show-errors
+
+          if az containerapp show \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --only-show-errors >/dev/null 2>&1; then
+
+            az containerapp update \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --image "$IMAGE" \
+              --set-env-vars \
+                "JWT_SECRET=$JWT_SECRET" \
+                "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db" \
+                "DB_USER=cafeorbe" \
+                "DB_PASSWORD=$DB_PASSWORD" \
+                "RABBIT_HOST=rabbitmq-prod" \
+                "RABBIT_USER=cafeorbe" \
+                "RABBIT_PASSWORD=$RABBIT_PASSWORD"
+
+          else
+
+            az containerapp create \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --environment "$CONTAINER_ENV" \
+              --image "$IMAGE" \
+              --ingress external \
+              --target-port 8081 \
+              --registry-server "${{ secrets.ACR_NAME }}.azurecr.io" \
+              --registry-username "${{ secrets.ACR_USERNAME }}" \
+              --registry-password "${{ secrets.ACR_PASSWORD }}" \
+              --env-vars \
+                "JWT_SECRET=$JWT_SECRET" \
+                "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db" \
+                "DB_USER=cafeorbe" \
+                "DB_PASSWORD=$DB_PASSWORD" \
+                "RABBIT_HOST=rabbitmq-prod" \
+                "RABBIT_USER=cafeorbe" \
+                "RABBIT_PASSWORD=$RABBIT_PASSWORD"
+
+          fi
 
       - name: Smoke test
         run: |
-          URL=$(az containerapp show -n identity-service-prod -g cafeorbe-org \
-                --query properties.configuration.ingress.fqdn -o tsv)
-          curl -fsS "https://$URL/actuator/health"
+          URL=$(az containerapp show \
+            --name identity-service-prod \
+            --resource-group cafeorbe-org \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+
+          curl --fail --show-error --silent "https://$URL/actuator/health"
