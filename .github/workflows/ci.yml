@@ -1,12 +1,13 @@
-name: CI identity-service
+name: CI/CD identity-service
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 jobs:
-  build:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +27,6 @@ jobs:
             m2-
 
       # contracts es un repo público: se compila e instala en el .m2 del runner.
-      # Así no hace falta token ni registry (GitHub Packages Maven no es proxy).
       - name: Build cafeorbe-contracts
         run: |
           git clone --depth 1 https://github.com/CafeOrbe/cafeorbe-contracts.git /tmp/contracts
@@ -34,3 +34,106 @@ jobs:
 
       - name: Build and test
         run: mvn -B verify
+
+  build-push:
+    needs: ci
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build cafeorbe-contracts
+        run: |
+          git clone --depth 1 https://github.com/CafeOrbe/cafeorbe-contracts.git /tmp/contracts
+          cd /tmp/contracts && mvn -B install
+
+      - name: Package jar
+        run: mvn -B package -DskipTests
+
+      - name: Login to ACR
+        uses: azure/docker-login@v2
+        with:
+          login-server: ${{ secrets.ACR_NAME }}.azurecr.io
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build & push image
+        run: |
+          IMG=${{ secrets.ACR_NAME }}.azurecr.io/identity-service
+          docker build -t $IMG:${{ github.sha }} -t $IMG:latest .
+          docker push $IMG:${{ github.sha }}
+          docker push $IMG:latest
+
+  deploy-qa:
+    needs: build-push
+    if: github.ref == 'refs/heads/main'
+    environment: QA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: azure/login@v2
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+      - uses: azure/container-apps-deploy@v2
+        with:
+          acrName: ${{ secrets.ACR_NAME }}
+          imageToDeploy: ${{ secrets.ACR_NAME }}.azurecr.io/identity-service:${{ github.sha }}
+          containerAppName: identity-service
+          containerAppEnvironment: cafeorbe-qa
+          resourceGroup: cafeorbe-org
+          ingress: external
+          targetPort: 8081
+          environmentVariables: |
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db
+            DB_USER=cafeorbe
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            RABBIT_HOST=rabbitmq-qa
+            RABBIT_USER=cafeorbe
+            RABBIT_PASSWORD=${{ secrets.RABBIT_PASSWORD }}
+
+      - name: Smoke test
+        run: |
+          URL=$(az containerapp show -n identity-service -g cafeorbe-org \
+                --query properties.configuration.ingress.fqdn -o tsv)
+          curl -fsS "https://$URL/actuator/health"
+
+  deploy-prod:
+    needs: build-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: PROD
+    runs-on: ubuntu-latest
+    steps:
+      - uses: azure/login@v2
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+      - uses: azure/container-apps-deploy@v2
+        with:
+          acrName: ${{ secrets.ACR_NAME }}
+          imageToDeploy: ${{ secrets.ACR_NAME }}.azurecr.io/identity-service:${{ github.sha }}
+          containerAppName: identity-service-prod
+          containerAppEnvironment: cafeorbe-prod
+          resourceGroup: cafeorbe-org
+          ingress: external
+          targetPort: 8081
+          environmentVariables: |
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db
+            DB_USER=cafeorbe
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            RABBIT_HOST=rabbitmq-prod
+            RABBIT_USER=cafeorbe
+            RABBIT_PASSWORD=${{ secrets.RABBIT_PASSWORD }}
+
+      - name: Smoke test
+        run: |
+          URL=$(az containerapp show -n identity-service-prod -g cafeorbe-org \
+                --query properties.configuration.ingress.fqdn -o tsv)
+          curl -fsS "https://$URL/actuator/health"
