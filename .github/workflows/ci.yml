@@ -89,7 +89,7 @@ jobs:
           resourceGroup: cafeorbe-org
           ingress: external
           targetPort: 8081
-          environmentVariables: |
+          environmentVariables: >-
             JWT_SECRET=${{ secrets.JWT_SECRET }}
             DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db
             DB_USER=cafeorbe
@@ -123,7 +123,7 @@ jobs:
           resourceGroup: cafeorbe-org
           ingress: external
           targetPort: 8081
-          environmentVariables: |
+          environmentVariables: >-
             JWT_SECRET=${{ secrets.JWT_SECRET }}
             DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db
             DB_USER=cafeorbe
