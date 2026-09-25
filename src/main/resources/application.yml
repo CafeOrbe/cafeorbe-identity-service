@@ -17,6 +17,9 @@ spring:
     port: ${RABBIT_PORT:5672}
     username: ${RABBIT_USER:cafeorbe}
     password: ${RABBIT_PASSWORD:cafeorbe}
+    virtual-host: ${RABBIT_VHOST:/}
+    ssl:
+      enabled: ${RABBIT_SSL:false}
 
 cafeorbe:
   jwt:

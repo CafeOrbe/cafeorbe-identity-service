@@ -104,14 +104,18 @@ jobs:
               --name "$APP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
               --image "$IMAGE" \
+              --min-replicas 1 \
               --set-env-vars \
                 "JWT_SECRET=$JWT_SECRET" \
                 "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db" \
                 "DB_USER=cafeorbe" \
                 "DB_PASSWORD=$DB_PASSWORD" \
-                "RABBIT_HOST=rabbitmq-qa" \
-                "RABBIT_USER=cafeorbe" \
-                "RABBIT_PASSWORD=$RABBIT_PASSWORD"
+                "RABBIT_HOST=toucan.lmq.cloudamqp.com" \
+                "RABBIT_PORT=5671" \
+                "RABBIT_USER=ebmfpsvi" \
+                "RABBIT_PASSWORD=$RABBIT_PASSWORD" \
+                "RABBIT_VHOST=ebmfpsvi" \
+                "RABBIT_SSL=true"
 
           else
 
@@ -122,6 +126,7 @@ jobs:
               --image "$IMAGE" \
               --ingress external \
               --target-port 8081 \
+              --min-replicas 1 \
               --registry-server "${{ secrets.ACR_NAME }}.azurecr.io" \
               --registry-username "${{ secrets.ACR_USERNAME }}" \
               --registry-password "${{ secrets.ACR_PASSWORD }}" \
@@ -130,9 +135,12 @@ jobs:
                 "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db" \
                 "DB_USER=cafeorbe" \
                 "DB_PASSWORD=$DB_PASSWORD" \
-                "RABBIT_HOST=rabbitmq-qa" \
-                "RABBIT_USER=cafeorbe" \
-                "RABBIT_PASSWORD=$RABBIT_PASSWORD"
+                "RABBIT_HOST=toucan.lmq.cloudamqp.com" \
+                "RABBIT_PORT=5671" \
+                "RABBIT_USER=ebmfpsvi" \
+                "RABBIT_PASSWORD=$RABBIT_PASSWORD" \
+                "RABBIT_VHOST=ebmfpsvi" \
+                "RABBIT_SSL=true"
 
           fi
 
@@ -180,14 +188,18 @@ jobs:
               --name "$APP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
               --image "$IMAGE" \
+              --min-replicas 1 \
               --set-env-vars \
                 "JWT_SECRET=$JWT_SECRET" \
                 "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db" \
                 "DB_USER=cafeorbe" \
                 "DB_PASSWORD=$DB_PASSWORD" \
-                "RABBIT_HOST=rabbitmq-prod" \
-                "RABBIT_USER=cafeorbe" \
-                "RABBIT_PASSWORD=$RABBIT_PASSWORD"
+                "RABBIT_HOST=toucan.lmq.cloudamqp.com" \
+                "RABBIT_PORT=5671" \
+                "RABBIT_USER=ebmfpsvi" \
+                "RABBIT_PASSWORD=$RABBIT_PASSWORD" \
+                "RABBIT_VHOST=ebmfpsvi" \
+                "RABBIT_SSL=true"
 
           else
 
@@ -198,6 +210,7 @@ jobs:
               --image "$IMAGE" \
               --ingress external \
               --target-port 8081 \
+              --min-replicas 1 \
               --registry-server "${{ secrets.ACR_NAME }}.azurecr.io" \
               --registry-username "${{ secrets.ACR_USERNAME }}" \
               --registry-password "${{ secrets.ACR_PASSWORD }}" \
@@ -206,9 +219,12 @@ jobs:
                 "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db" \
                 "DB_USER=cafeorbe" \
                 "DB_PASSWORD=$DB_PASSWORD" \
-                "RABBIT_HOST=rabbitmq-prod" \
-                "RABBIT_USER=cafeorbe" \
-                "RABBIT_PASSWORD=$RABBIT_PASSWORD"
+                "RABBIT_HOST=toucan.lmq.cloudamqp.com" \
+                "RABBIT_PORT=5671" \
+                "RABBIT_USER=ebmfpsvi" \
+                "RABBIT_PASSWORD=$RABBIT_PASSWORD" \
+                "RABBIT_VHOST=ebmfpsvi" \
+                "RABBIT_SSL=true"
 
           fi
 
