@@ -146,22 +146,27 @@ jobs:
 
       - name: Smoke test
         run: |
-          URL=$(az containerapp show \
-            --name identity-service \
+          # Petición real a través del api-gateway, como lo usa el frontend: comprueba el servicio y su enrutamiento.
+          GW=$(az containerapp show \
+            --name api-gateway \
             --resource-group cafeorbe-org \
             --query properties.configuration.ingress.fqdn \
             --output tsv)
 
-          # Spring Boot tarda 60-90s en arrancar: reintenta hasta 3 min
           for i in $(seq 1 12); do
-            if curl --fail --show-error --silent "https://$URL/actuator/health" 2>/dev/null; then
-              echo "Health UP en intento $i"
+            # Un nombre vacío no crea nada: identity debe rechazarlo con 400.
+            CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
+              --request POST "https://$GW/api/sesion" \
+              --header 'Content-Type: application/json' \
+              --data '{"nombre":" ","rol":"COMPRADOR"}' || true)
+            if [ "$CODE" = "400" ]; then
+              echo "identity-service responde por el gateway en el intento $i"
               exit 0
             fi
-            echo "Intento $i: aún no listo, esperando 15s..."
+            echo "Intento $i: HTTP $CODE, esperando 15s..."
             sleep 15
           done
-          echo "Health no respondió tras 12 intentos"
+          echo "identity-service no respondió por el gateway tras 12 intentos"
           exit 1
 
   deploy-prod:
@@ -240,20 +245,25 @@ jobs:
 
       - name: Smoke test
         run: |
-          URL=$(az containerapp show \
-            --name identity-service-prod \
+          # Petición real a través del api-gateway, como lo usa el frontend: comprueba el servicio y su enrutamiento.
+          GW=$(az containerapp show \
+            --name api-gateway-prod \
             --resource-group cafeorbe-org \
             --query properties.configuration.ingress.fqdn \
             --output tsv)
 
-          # Spring Boot tarda 60-90s en arrancar: reintenta hasta 3 min
           for i in $(seq 1 12); do
-            if curl --fail --show-error --silent "https://$URL/actuator/health" 2>/dev/null; then
-              echo "Health UP en intento $i"
+            # Un nombre vacío no crea nada: identity debe rechazarlo con 400.
+            CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
+              --request POST "https://$GW/api/sesion" \
+              --header 'Content-Type: application/json' \
+              --data '{"nombre":" ","rol":"COMPRADOR"}' || true)
+            if [ "$CODE" = "400" ]; then
+              echo "identity-service responde por el gateway en el intento $i"
               exit 0
             fi
-            echo "Intento $i: aún no listo, esperando 15s..."
+            echo "Intento $i: HTTP $CODE, esperando 15s..."
             sleep 15
           done
-          echo "Health no respondió tras 12 intentos"
+          echo "identity-service no respondió por el gateway tras 12 intentos"
           exit 1
