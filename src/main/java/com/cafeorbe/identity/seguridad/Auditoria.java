@@ -4,12 +4,13 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
 /**
  * Registro de auditoría de seguridad (SEG-01, SEG-02, SEG-05). Cada intento rechazado deja una línea JSON con
  * evento, motivo, usuario, IP y correlationId, y suma la métrica {@code cafeorbe_seguridad_eventos_total}.
+ * El correlationId sale del MDC (FiltroDeCorrelacion): no se agrega aquí, porque en los logs JSON un campo
+ * repetido hace fallar al escritor y el evento se pierde sin aviso.
  * Nunca se registra el token ni el ID token: solo el motivo.
  */
 @Component
@@ -31,7 +32,6 @@ public class Auditoria {
                 .addKeyValue("usuario", usuario == null ? "desconocido" : usuario)
                 .addKeyValue("ip", ipDe(peticion))
                 .addKeyValue("ruta", peticion.getRequestURI())
-                .addKeyValue("correlationId", MDC.get(FiltroDeCorrelacion.MDC_CLAVE))
                 .log("Evento de seguridad: {} ({})", evento, motivo);
     }
 
@@ -40,7 +40,6 @@ public class Auditoria {
         log.atInfo()
                 .addKeyValue("evento", evento)
                 .addKeyValue("usuario", usuario)
-                .addKeyValue("correlationId", MDC.get(FiltroDeCorrelacion.MDC_CLAVE))
                 .log("Evento de seguridad: {}", evento);
     }
 
