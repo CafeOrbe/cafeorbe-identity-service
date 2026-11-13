@@ -25,7 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Dos ingresos simultáneos con el mismo nombre y rol compiten por el mismo INSERT: la base resuelve la
+ * Dos ingresos simultáneos con la misma cuenta de Google y rol compiten por el mismo INSERT: la base resuelve la
  * carrera con una violación de unicidad. El que pierde debe re-leer al ganador y emitirle un token, no
  * fallar. Y como el ganador ya publicó su UsuarioRegistrado, el perdedor no debe volver a publicarlo:
  * wallet es idempotente, pero el punto es no duplicar trabajo ni el evento.
@@ -37,25 +37,40 @@ class SesionServiceCarreraTest {
     private final UsuarioRepository usuarios = mock(UsuarioRepository.class);
     private final RabbitTemplate rabbit = mock(RabbitTemplate.class);
     private final TokenService tokens = new TokenService(SECRETO, 8);
-    private final SesionService servicio = new SesionService(usuarios, tokens, rabbit);
+    private final SesionService servicio = new SesionService(usuarios, tokens, rabbit,
+            new AlmacenDeSesionesEnMemoria(), new com.fasterxml.jackson.databind.ObjectMapper(), 30);
 
     private static Usuario ganadorConEventoYaPublicado(String nombre, Rol rol) {
-        var usuario = new Usuario(nombre, rol);
+        var usuario = Usuario.deGoogle(sub(nombre), sub(nombre) + "@gmail.com", nombre, rol);
         usuario.marcarEventoPublicado();
         return usuario;
+    }
+
+    /** La cuenta de Google de cada persona de prueba: su sub es el nombre sin espacios ni mayúsculas. */
+    private static String sub(String nombre) {
+        return nombre.trim().toLowerCase(java.util.Locale.ROOT).replace(' ', '-');
+    }
+
+    private static String clave(String nombre) {
+        return Usuario.claveGoogle(sub(nombre));
+    }
+
+    private SesionService.Sesion entrar(String nombre, Rol rol) {
+        return servicio.iniciarSesionConGoogle(
+                new VerificadorGoogle.CuentaGoogle(sub(nombre), sub(nombre) + "@gmail.com", nombre), rol);
     }
 
     @Test
     @DisplayName("Carrera del INSERT: el segundo ingreso reutiliza al ganador y no se marca como nuevo")
     void elPerdedorReutilizaAlGanador() {
         var ganador = ganadorConEventoYaPublicado("Ana", Rol.COMPRADOR);
-        when(usuarios.findByNombreNormalizadoAndRol(Usuario.normalizar("Ana"), Rol.COMPRADOR))
+        when(usuarios.findByNombreNormalizadoAndRol(clave("Ana"), Rol.COMPRADOR))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(ganador));
         when(usuarios.saveAndFlush(any(Usuario.class)))
                 .thenThrow(new DataIntegrityViolationException("violación de unicidad"));
 
-        var sesion = servicio.iniciarSesion("Ana", Rol.COMPRADOR);
+        var sesion = entrar("Ana", Rol.COMPRADOR);
 
         assertThat(sesion.nuevo()).isFalse();
         assertThat(sesion.usuario()).isSameAs(ganador);
@@ -66,13 +81,13 @@ class SesionServiceCarreraTest {
     @DisplayName("Carrera · El perdedor no vuelve a publicar UsuarioRegistrado: ya lo publicó el ganador")
     void elPerdedorNoRepublicaElEvento() {
         var ganador = ganadorConEventoYaPublicado("Ana", Rol.COMPRADOR);
-        when(usuarios.findByNombreNormalizadoAndRol(Usuario.normalizar("Ana"), Rol.COMPRADOR))
+        when(usuarios.findByNombreNormalizadoAndRol(clave("Ana"), Rol.COMPRADOR))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(ganador));
         when(usuarios.saveAndFlush(any(Usuario.class)))
                 .thenThrow(new DataIntegrityViolationException("violación de unicidad"));
 
-        servicio.iniciarSesion("Ana", Rol.COMPRADOR);
+        entrar("Ana", Rol.COMPRADOR);
 
         verify(rabbit, never()).convertAndSend(anyString(), anyString(), any(Object.class));
     }
@@ -80,23 +95,23 @@ class SesionServiceCarreraTest {
     @Test
     @DisplayName("Carrera · Si tras la violación tampoco aparece el ganador, el error original se propaga")
     void sinGanadorVisibleSePropagaElError() {
-        when(usuarios.findByNombreNormalizadoAndRol(Usuario.normalizar("Ana"), Rol.COMPRADOR))
+        when(usuarios.findByNombreNormalizadoAndRol(clave("Ana"), Rol.COMPRADOR))
                 .thenReturn(Optional.empty());
         when(usuarios.saveAndFlush(any(Usuario.class)))
                 .thenThrow(new DataIntegrityViolationException("violación de unicidad"));
 
-        assertThatThrownBy(() -> servicio.iniciarSesion("Ana", Rol.COMPRADOR))
+        assertThatThrownBy(() -> entrar("Ana", Rol.COMPRADOR))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
     @DisplayName("Primer ingreso: registra el usuario, marca nuevo y publica UsuarioRegistrado")
     void primerIngresoRegistraYPublica() {
-        when(usuarios.findByNombreNormalizadoAndRol(Usuario.normalizar("Ana"), Rol.COMPRADOR))
+        when(usuarios.findByNombreNormalizadoAndRol(clave("Ana"), Rol.COMPRADOR))
                 .thenReturn(Optional.empty());
         when(usuarios.saveAndFlush(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
 
-        var sesion = servicio.iniciarSesion("Ana", Rol.COMPRADOR);
+        var sesion = entrar("Ana", Rol.COMPRADOR);
 
         assertThat(sesion.nuevo()).isTrue();
         assertThat(sesion.usuario().isEventoPublicado()).isTrue();
@@ -106,13 +121,13 @@ class SesionServiceCarreraTest {
     @Test
     @DisplayName("Si el broker está caído, el primer ingreso no falla: el evento queda pendiente de reintento")
     void brokerCaidoNoImpideCrearLaSesion() {
-        when(usuarios.findByNombreNormalizadoAndRol(Usuario.normalizar("Ana"), Rol.COMPRADOR))
+        when(usuarios.findByNombreNormalizadoAndRol(clave("Ana"), Rol.COMPRADOR))
                 .thenReturn(Optional.empty());
         when(usuarios.saveAndFlush(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
         org.mockito.Mockito.doThrow(new org.springframework.amqp.AmqpConnectException(new RuntimeException("caído")))
                 .when(rabbit).convertAndSend(anyString(), anyString(), any(Object.class));
 
-        var sesion = servicio.iniciarSesion("Ana", Rol.COMPRADOR);
+        var sesion = entrar("Ana", Rol.COMPRADOR);
 
         assertThat(sesion.token()).isNotBlank();
         assertThat(sesion.usuario().isEventoPublicado()).isFalse();
@@ -122,10 +137,10 @@ class SesionServiceCarreraTest {
     @DisplayName("Un ingreso posterior solo emite token: ni crea usuario ni publica evento")
     void ingresoPosteriorSoloEmiteToken() {
         var existente = ganadorConEventoYaPublicado("Ana", Rol.COMPRADOR);
-        when(usuarios.findByNombreNormalizadoAndRol(Usuario.normalizar("Ana"), Rol.COMPRADOR))
+        when(usuarios.findByNombreNormalizadoAndRol(clave("Ana"), Rol.COMPRADOR))
                 .thenReturn(Optional.of(existente));
 
-        var sesion = servicio.iniciarSesion("Ana", Rol.COMPRADOR);
+        var sesion = entrar("Ana", Rol.COMPRADOR);
 
         assertThat(sesion.nuevo()).isFalse();
         assertThat(sesion.usuario()).isSameAs(existente);
@@ -134,13 +149,14 @@ class SesionServiceCarreraTest {
     }
 
     @Test
-    @DisplayName("El nombre se normaliza: «  aNa  » y «ana» son la misma persona, no dos usuarios")
-    void elNombreSeNormaliza() {
+    @DisplayName("La persona es su cuenta de Google: si cambia su nombre en Google sigue siendo el mismo usuario")
+    void laCuentaDeGoogleEsLaIdentidad() {
         var existente = ganadorConEventoYaPublicado("Ana", Rol.COMPRADOR);
-        when(usuarios.findByNombreNormalizadoAndRol(Usuario.normalizar("aNa"), Rol.COMPRADOR))
+        when(usuarios.findByNombreNormalizadoAndRol(Usuario.claveGoogle("ana"), Rol.COMPRADOR))
                 .thenReturn(Optional.of(existente));
 
-        var sesion = servicio.iniciarSesion("  aNa  ", Rol.COMPRADOR);
+        var sesion = servicio.iniciarSesionConGoogle(
+                new VerificadorGoogle.CuentaGoogle("ana", "ana@gmail.com", "Ana María"), Rol.COMPRADOR);
 
         assertThat(sesion.usuario()).isSameAs(existente);
         assertThat(sesion.usuario().getNombre()).isEqualTo("Ana");
@@ -150,10 +166,10 @@ class SesionServiceCarreraTest {
     @DisplayName("El token lleva id, nombre y rol, que es lo que leen el api-gateway y el realtime-gateway")
     void elTokenLlevaLaIdentidad() {
         var existente = ganadorConEventoYaPublicado("José Ñandú", Rol.SUBASTADOR);
-        when(usuarios.findByNombreNormalizadoAndRol(Usuario.normalizar("José Ñandú"), Rol.SUBASTADOR))
+        when(usuarios.findByNombreNormalizadoAndRol(clave("José Ñandú"), Rol.SUBASTADOR))
                 .thenReturn(Optional.of(existente));
 
-        var sesion = servicio.iniciarSesion("José Ñandú", Rol.SUBASTADOR);
+        var sesion = entrar("José Ñandú", Rol.SUBASTADOR);
 
         var claims = Jwts.parser().verifyWith(Keys.hmacShaKeyFor(SECRETO.getBytes(StandardCharsets.UTF_8)))
                 .build().parseSignedClaims(sesion.token()).getPayload();
@@ -163,13 +179,13 @@ class SesionServiceCarreraTest {
     }
 
     @Test
-    @DisplayName("El mismo nombre con distinto rol es otra persona y sí se registra aparte")
+    @DisplayName("La misma cuenta con distinto rol es otro usuario y sí se registra aparte")
     void elRolParteLaIdentidad() {
-        when(usuarios.findByNombreNormalizadoAndRol(Usuario.normalizar("Ana"), Rol.SUBASTADOR))
+        when(usuarios.findByNombreNormalizadoAndRol(clave("Ana"), Rol.SUBASTADOR))
                 .thenReturn(Optional.empty());
         when(usuarios.saveAndFlush(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
 
-        var sesion = servicio.iniciarSesion("Ana", Rol.SUBASTADOR);
+        var sesion = entrar("Ana", Rol.SUBASTADOR);
 
         assertThat(sesion.nuevo()).isTrue();
         assertThat(sesion.usuario().getRol()).isEqualTo(Rol.SUBASTADOR);

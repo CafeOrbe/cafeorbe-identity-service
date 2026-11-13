@@ -7,3 +7,16 @@ spring:
     listener:
       simple:
         auto-startup: false
+
+cafeorbe:
+  sesiones:
+    modo: memoria
+  google:
+    client-ids: cliente-cafeorbe.apps.googleusercontent.com
+  seguridad:
+    credencial-interna: credencial-de-prueba
+
+logging:
+  structured:
+    format:
+      console: ""

@@ -1,5 +1,7 @@
 server:
   port: 8081
+  # DIS-01: al detener una réplica termina las peticiones en curso antes de apagarse.
+  shutdown: graceful
 
 spring:
   application:
@@ -8,10 +10,22 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/identity_db}
     username: ${DB_USER:identity}
     password: ${DB_PASSWORD:identity}
+    # DIS-01: con varias réplicas, cada una abre su propio pool. El PostgreSQL B1ms de QA admite ~35 conexiones de
+    # usuario para los cuatro servicios; con 4 por réplica, auction puede escalar a 4 réplicas sin agotarlas.
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:4}
+      minimum-idle: 1
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL:false}
   rabbitmq:
     host: ${RABBIT_HOST:localhost}
     port: ${RABBIT_PORT:5672}
@@ -25,9 +39,50 @@ cafeorbe:
   jwt:
     secret: ${JWT_SECRET:cafeorbe-dev-jwt-secret-cambiar-en-prod-0123456789}
     horas-de-vida: 8
+  sesiones:
+    # redis: sesiones cerradas y tickets WebSocket compartidos con los gateways. memoria: solo pruebas.
+    modo: redis
+  ws-ticket:
+    segundos-de-vida: 30
+  google:
+    # Client ID (o varios, separados por coma) de la aplicación web en Google Cloud. Sin él, nadie entra con Google.
+    client-ids: ${GOOGLE_CLIENT_ID:}
+    jwks-uri: https://www.googleapis.com/oauth2/v3/certs
+  seguridad:
+    # SEG-02: credencial que el api-gateway y los demás servicios presentan en X-Internal-Token.
+    credencial-interna: ${INTERNAL_TOKEN:cafeorbe-dev-credencial-interna-cambiar-en-prod}
+
+logging:
+  structured:
+    # OBS-01: logs JSON con correlationId (MDC) para Log Analytics.
+    format:
+      console: ${LOG_FORMAT:logstash}
 
 management:
+  # OBS-01: el ingress de Azure reparte entre réplicas, así que un scrape por la URL pública ve una al azar.
+  # Cada réplica empuja sus métricas cada 10 s al endpoint OTLP de Grafana Cloud (sin Alloy). Apagado por defecto.
+  otlp:
+    metrics:
+      export:
+        enabled: ${OTLP_METRICS_ENABLED:false}
+        url: ${OTLP_METRICS_URL:http://localhost:4318/v1/metrics}
+        step: ${OTLP_METRICS_STEP:10s}
+        headers:
+          Authorization: ${OTLP_METRICS_AUTH:}
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
+  endpoint:
+    health:
+      # DIS-01: /actuator/health/liveness y /actuator/health/readiness para las sondas de Azure Container Apps.
+      probes:
+        enabled: true
+  health:
+    redis:
+      enabled: false
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      # DIS-01 / OBS-01: réplica que reporta, para medir el reparto entre réplicas y ver cuál cae.
+      instancia: ${CONTAINER_APP_REPLICA_NAME:${HOSTNAME:local}}

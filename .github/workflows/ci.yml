@@ -37,10 +37,15 @@ jobs:
       - name: Build and test
         run: mvn -B verify
 
-      - name: SonarQube scan
+      # MAN-01: el análisis espera el Quality Gate de SonarQube Cloud (máx. 10 min). Si no pasa, el job queda en
+      # rojo y, con la protección de rama de main, el pull request no se puede integrar.
+      - name: SonarQube scan y Quality Gate
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+        run: >-
+          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+          -Dsonar.qualitygate.wait=true
+          -Dsonar.qualitygate.timeout=600
 
   build-push:
     needs: ci
@@ -90,10 +95,28 @@ jobs:
       - name: Deploy QA Container App
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          # Sprint 2 (SEG-02): credencial interna, la misma en los 6 servicios.
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
+          # OBS-01: métricas por OTLP hacia Grafana Cloud (apagado si no se define la variable).
+          OTLP_METRICS_ENABLED: ${{ vars.OTLP_METRICS_ENABLED || 'false' }}
+          OTLP_METRICS_URL: ${{ vars.OTLP_METRICS_URL || 'http://localhost:4318/v1/metrics' }}
+          OTLP_METRICS_AUTH: ${{ secrets.OTLP_METRICS_AUTH }}
+          # SEG-03/04/05: Redis compartido (tickets, sesiones cerradas, límites). TLS por defecto.
+          REDIS_HOST: ${{ vars.REDIS_HOST }}
+          REDIS_PORT: ${{ vars.REDIS_PORT || '6380' }}
+          REDIS_SSL: ${{ vars.REDIS_SSL || 'true' }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          # SEG-01: Client ID web de Google, el único acceso (no hay login propio).
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           RABBIT_PASSWORD: ${{ secrets.RABBIT_PASSWORD }}
         run: |
           set -euo pipefail
+
+          # Sin estos valores el servicio arranca, pero QA queda roto: mejor fallar aquí con un mensaje claro.
+          : "${INTERNAL_TOKEN:?Falta el secreto INTERNAL_TOKEN en GitHub (el mismo en los 6 repositorios)}"
+          : "${REDIS_HOST:?Falta la variable REDIS_HOST en GitHub (ver PLAN_AZURE_SPRINT2.md, sección 3)}"
+          : "${GOOGLE_CLIENT_ID:?Falta la variable GOOGLE_CLIENT_ID en GitHub (ver PLAN_AZURE_SPRINT2.md, sección 2)}"
 
           APP_NAME="identity-service"
           RESOURCE_GROUP="cafeorbe-org"
@@ -118,6 +141,15 @@ jobs:
             --min-replicas 1 \
             --set-env-vars \
               "JWT_SECRET=$JWT_SECRET" \
+              "INTERNAL_TOKEN=$INTERNAL_TOKEN" \
+              "OTLP_METRICS_ENABLED=$OTLP_METRICS_ENABLED" \
+              "OTLP_METRICS_URL=$OTLP_METRICS_URL" \
+              "OTLP_METRICS_AUTH=$OTLP_METRICS_AUTH" \
+              "REDIS_HOST=$REDIS_HOST" \
+              "REDIS_PORT=$REDIS_PORT" \
+              "REDIS_PASSWORD=$REDIS_PASSWORD" \
+              "REDIS_SSL=$REDIS_SSL" \
+              "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" \
               "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db" \
               "DB_USER=cafeorbe" \
               "DB_PASSWORD=$DB_PASSWORD" \
@@ -139,12 +171,13 @@ jobs:
             --output tsv)
 
           for i in $(seq 1 12); do
-            # Un nombre vacío no crea nada: identity debe rechazarlo con 400.
+            # SEG-01: un ID token falso no crea sesión. El gateway deja pasar esta ruta sin token, así que el 401
+            # viene de identity: comprueba el servicio, el enrutamiento y la verificación con Google.
             CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
-              --request POST "https://$GW/api/sesion" \
+              --request POST "https://$GW/api/sesion/google" \
               --header 'Content-Type: application/json' \
-              --data '{"nombre":" ","rol":"COMPRADOR"}' || true)
-            if [ "$CODE" = "400" ]; then
+              --data '{"idToken":"no-es-un-token-de-google","rol":"COMPRADOR"}' || true)
+            if [ "$CODE" = "401" ]; then
               echo "identity-service responde por el gateway en el intento $i"
               exit 0
             fi
@@ -167,10 +200,28 @@ jobs:
       - name: Deploy PROD Container App
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          # Sprint 2 (SEG-02): credencial interna, la misma en los 6 servicios.
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
+          # OBS-01: métricas por OTLP hacia Grafana Cloud (apagado si no se define la variable).
+          OTLP_METRICS_ENABLED: ${{ vars.OTLP_METRICS_ENABLED || 'false' }}
+          OTLP_METRICS_URL: ${{ vars.OTLP_METRICS_URL || 'http://localhost:4318/v1/metrics' }}
+          OTLP_METRICS_AUTH: ${{ secrets.OTLP_METRICS_AUTH }}
+          # SEG-03/04/05: Redis compartido (tickets, sesiones cerradas, límites). TLS por defecto.
+          REDIS_HOST: ${{ vars.REDIS_HOST }}
+          REDIS_PORT: ${{ vars.REDIS_PORT || '6380' }}
+          REDIS_SSL: ${{ vars.REDIS_SSL || 'true' }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          # SEG-01: Client ID web de Google, el único acceso (no hay login propio).
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           RABBIT_PASSWORD: ${{ secrets.RABBIT_PASSWORD }}
         run: |
           set -euo pipefail
+
+          # Sin estos valores el servicio arranca, pero QA queda roto: mejor fallar aquí con un mensaje claro.
+          : "${INTERNAL_TOKEN:?Falta el secreto INTERNAL_TOKEN en GitHub (el mismo en los 6 repositorios)}"
+          : "${REDIS_HOST:?Falta la variable REDIS_HOST en GitHub (ver PLAN_AZURE_SPRINT2.md, sección 3)}"
+          : "${GOOGLE_CLIENT_ID:?Falta la variable GOOGLE_CLIENT_ID en GitHub (ver PLAN_AZURE_SPRINT2.md, sección 2)}"
 
           APP_NAME="identity-service-prod"
           RESOURCE_GROUP="cafeorbe-org"
@@ -195,6 +246,15 @@ jobs:
             --min-replicas 1 \
             --set-env-vars \
               "JWT_SECRET=$JWT_SECRET" \
+              "INTERNAL_TOKEN=$INTERNAL_TOKEN" \
+              "OTLP_METRICS_ENABLED=$OTLP_METRICS_ENABLED" \
+              "OTLP_METRICS_URL=$OTLP_METRICS_URL" \
+              "OTLP_METRICS_AUTH=$OTLP_METRICS_AUTH" \
+              "REDIS_HOST=$REDIS_HOST" \
+              "REDIS_PORT=$REDIS_PORT" \
+              "REDIS_PASSWORD=$REDIS_PASSWORD" \
+              "REDIS_SSL=$REDIS_SSL" \
+              "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" \
               "DB_URL=jdbc:postgresql://cafeorbe-pg.postgres.database.azure.com:5432/identity_db" \
               "DB_USER=cafeorbe" \
               "DB_PASSWORD=$DB_PASSWORD" \
@@ -216,12 +276,13 @@ jobs:
             --output tsv)
 
           for i in $(seq 1 12); do
-            # Un nombre vacío no crea nada: identity debe rechazarlo con 400.
+            # SEG-01: un ID token falso no crea sesión. El gateway deja pasar esta ruta sin token, así que el 401
+            # viene de identity: comprueba el servicio, el enrutamiento y la verificación con Google.
             CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
-              --request POST "https://$GW/api/sesion" \
+              --request POST "https://$GW/api/sesion/google" \
               --header 'Content-Type: application/json' \
-              --data '{"nombre":" ","rol":"COMPRADOR"}' || true)
-            if [ "$CODE" = "400" ]; then
+              --data '{"idToken":"no-es-un-token-de-google","rol":"COMPRADOR"}' || true)
+            if [ "$CODE" = "401" ]; then
               echo "identity-service responde por el gateway en el intento $i"
               exit 0
             fi

@@ -77,36 +77,33 @@ flowchart TB
 
 ## 3. Contrato de la API
 
-### `POST /api/sesion`
+### `POST /api/sesion/google` (SEG-01)
 
-Único endpoint. Es público: el api-gateway lo deja pasar sin token.
+Acceso de QA y producción. Público en el api-gateway. El navegador envía el ID token que le entregó Google y el rol con el que la persona quiere entrar; identity verifica firma (claves públicas de Google), vencimiento, emisor y audiencia (`GOOGLE_CLIENT_ID`) y que el correo esté verificado.
 
 ```json
 // Petición
-{ "nombre": "Ana", "rol": "COMPRADOR" }
+{ "idToken": "eyJhbGciOiJSUzI1NiIs...", "rol": "COMPRADOR" }
+```
 
+```json
 // Respuesta 201
 {
   "token": "eyJhbGciOiJIUzI1NiJ9...",
-  "usuario": { "id": "0b6f...", "nombre": "Ana", "rol": "COMPRADOR" },
+  "usuario": { "id": "0b6f...", "nombre": "Ana Gómez", "rol": "COMPRADOR" },
   "nuevo": true
 }
 ```
 
-| Campo | Regla |
-|---|---|
-| `nombre` | Obligatorio, máximo 50 caracteres |
-| `rol` | `SUBASTADOR` o `COMPRADOR` |
-| `nuevo` | `true` solo la primera vez que esa persona ingresa. El frontend lo usa para avisar de la carga automática de Orbes |
+`nuevo` es `true` solo la primera vez que esa cuenta entra con ese rol; el frontend lo usa para avisar de la carga automática de Orbes. **Es el único acceso:** no hay usuario y contraseña propios ni acceso por nombre (el `POST /api/sesion` del Sprint 1 se eliminó). Un token falso, alterado, vencido o emitido para otra aplicación responde `401` sin crear sesión, y el motivo queda en el log de auditoría (`cafeorbe.seguridad`, evento `login_rechazado`). La cuenta de Google más el rol identifican al usuario: dos personas con el mismo nombre son usuarios distintos.
 
-| HTTP | Cuándo | Mensaje |
-|:-:|---|---|
-| `201` | Sesión creada | |
-| `400` | Nombre vacío | El nombre es obligatorio |
-| `400` | Rol ausente | El rol es obligatorio |
-| `400` | Rol desconocido o cuerpo ilegible | La solicitud no es válida: revisa el nombre y el rol |
+### `POST /api/sesion/cerrar` (HU-02, SEG-05)
 
-**Cerrar sesión (HU-02) no tiene endpoint:** el cliente descarta el token. El servidor no guarda sesiones.
+Con `Authorization: Bearer {token}`. Anota el `jti` de la sesión en Redis (`cafeorbe:sesion:cerrada:{jti}`) hasta que el token vence: el api-gateway lo rechaza con `401` y el realtime-gateway corta su WebSocket en 1 s. Responde `204`.
+
+### `POST /api/sesion/ticket-ws` (SEG-04)
+
+Con `Authorization: Bearer {token}`. Devuelve `{ "ticket": "...", "expiraEn": "..." }`: un valor aleatorio de 256 bits, válido 30 s y de un solo uso, que el navegador pone en la URL del WebSocket en lugar del token de sesión.
 
 ## 4. Flujo de inicio de sesión
 
@@ -119,8 +116,9 @@ sequenceDiagram
     participant MQ as RabbitMQ
     participant WA as wallet-service
 
-    N->>ID: POST /api/sesion con nombre y rol
-    ID->>DB: Buscar por nombre normalizado y rol
+    N->>ID: POST /api/sesion/google con el ID token y el rol
+    Note over ID: Verifica firma, emisor, audiencia y vencimiento con las claves de Google
+    ID->>DB: Buscar por cuenta de Google (google:sub) y rol
     alt Primera vez
         ID->>DB: INSERT usuario
         Note over ID,DB: Si dos ingresos simultáneos chocan, la restricción única<br/>hace fallar a uno, que relee el usuario ya creado
@@ -135,17 +133,18 @@ sequenceDiagram
     ID-->>N: 201 con token, usuario y nuevo
 ```
 
-**Identidad de una persona:** nombre sin distinguir mayúsculas ni espacios en los extremos, más el rol. "Ana" y " ana " como Comprador son la misma persona; "Ana" como Subastador es otra.
+**Identidad de una persona:** su cuenta de Google (`sub`) más el rol. Si cambia su nombre en Google sigue siendo la misma persona; la misma cuenta como Subastador es otro usuario.
 
 ## 5. El token de sesión
 
-Un JWT firmado con HS256. Lo validan el api-gateway (peticiones REST) y el realtime-gateway (conexión WebSocket) con el mismo secreto.
+Un JWT firmado con HS256. Lo valida el api-gateway en cada petición REST, con el mismo secreto. El realtime-gateway ya no lo recibe: el WebSocket se abre con un ticket de un solo uso (SEG-04).
 
 | Claim | Contenido |
 |---|---|
 | `sub` | Id del usuario (UUID) |
 | `nombre` | Nombre para mostrar |
 | `rol` | `SUBASTADOR` o `COMPRADOR` |
+| `jti` | Identificador de la sesión: es lo que se anota al cerrarla (SEG-05) |
 | `iat` / `exp` | Emisión y vencimiento: 8 horas |
 
 El token es **autocontenido**: quien lo valida no necesita consultar a este servicio. Por eso identity puede estar caído sin afectar a los usuarios que ya ingresaron.
@@ -209,7 +208,11 @@ Restricción única sobre `(nombre_normalizado, rol)`. El esquema lo gestiona Fl
 | `DB_URL` `DB_USER` `DB_PASSWORD` | `jdbc:postgresql://localhost:5432/identity_db` | Base de datos propia |
 | `RABBIT_HOST` `RABBIT_PORT` `RABBIT_USER` `RABBIT_PASSWORD` | `localhost:5672` | Broker de eventos |
 | `RABBIT_VHOST` `RABBIT_SSL` | `/` · `false` | Broker gestionado con TLS |
-| `JWT_SECRET` | valor de desarrollo | Mínimo 32 caracteres. Debe ser el mismo en api-gateway y realtime-gateway |
+| `JWT_SECRET` | valor de desarrollo | Mínimo 32 caracteres. Debe ser el mismo en api-gateway |
+| `GOOGLE_CLIENT_ID` | vacío | Client ID web de Google (varios separados por coma). Vacío: nadie entra con Google |
+| `REDIS_HOST` `REDIS_PORT` `REDIS_PASSWORD` `REDIS_SSL` | `localhost:6379` · `false` | Sesiones cerradas y tickets WebSocket, compartidos con los gateways |
+| `INTERNAL_TOKEN` | valor de desarrollo | Credencial interna (`X-Internal-Token`) que presenta el api-gateway (SEG-02). La misma en todos los servicios |
+| `LOG_FORMAT` | `logstash` | Logs JSON con `correlationId` (OBS-01) |
 
 ## 11. Ejecución y pruebas
 
