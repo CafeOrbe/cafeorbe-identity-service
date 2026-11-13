@@ -86,3 +86,9 @@ management:
       application: ${spring.application.name}
       # DIS-01 / OBS-01: réplica que reporta, para medir el reparto entre réplicas y ver cuál cae.
       instancia: ${CONTAINER_APP_REPLICA_NAME:${HOSTNAME:local}}
+    distribution:
+      # SEG-01 / OBS-01: el login con Google debe tardar menos de 3 s en p95. Sin buckets solo hay conteo, suma y
+      # máximo, y Grafana no puede calcular el p95. Buckets fijos en los umbrales (no el histograma completo, que
+      # se come el plan gratuito de Grafana Cloud), los mismos que el api-gateway.
+      slo:
+        http.server.requests: 50ms,100ms,200ms,400ms,800ms,1500ms,3s,5s
