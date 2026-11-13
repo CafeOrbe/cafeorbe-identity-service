@@ -22,8 +22,16 @@ public class Usuario {
     @Column(nullable = false, length = 50)
     private String nombre;
 
-    @Column(name = "nombre_normalizado", nullable = false, length = 50)
+    /** Clave de búsqueda: el nombre normalizado, o {@code google:{sub}} en las cuentas de Google. */
+    @Column(name = "nombre_normalizado", nullable = false, length = 300)
     private String nombreNormalizado;
+
+    /** SEG-01: identificador estable de la cuenta de Google ({@code sub}); nulo en el acceso por nombre. */
+    @Column(name = "google_sub")
+    private String googleSub;
+
+    @Column(name = "email", length = 320)
+    private String email;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -46,6 +54,22 @@ public class Usuario {
         this.creadoEn = Instant.now();
     }
 
+    /**
+     * Usuario que entra con Google. Dos personas pueden llamarse igual, así que la clave única no es el nombre
+     * sino la cuenta de Google ({@code sub}) y el rol.
+     */
+    public static Usuario deGoogle(String sub, String email, String nombre, Rol rol) {
+        var usuario = new Usuario(nombre, rol);
+        usuario.nombreNormalizado = claveGoogle(sub);
+        usuario.googleSub = sub;
+        usuario.email = email;
+        return usuario;
+    }
+
+    public static String claveGoogle(String sub) {
+        return "google:" + sub;
+    }
+
     public static String normalizar(String nombre) {
         return nombre.trim().toLowerCase(Locale.ROOT);
     }
@@ -60,6 +84,14 @@ public class Usuario {
 
     public Rol getRol() {
         return rol;
+    }
+
+    public String getGoogleSub() {
+        return googleSub;
+    }
+
+    public String getEmail() {
+        return email;
     }
 
     public boolean isEventoPublicado() {

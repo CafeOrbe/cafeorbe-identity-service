@@ -1,5 +1,7 @@
 package com.cafeorbe.identity.controller;
 
+import com.cafeorbe.identity.service.SesionService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -18,6 +20,13 @@ public class ManejadorDeErrores {
         e.getBindingResult().getFieldErrors().forEach(f -> campos.putIfAbsent(f.getField(), f.getDefaultMessage()));
         String mensaje = campos.values().stream().findFirst().orElse("Datos inválidos");
         return ResponseEntity.badRequest().body(new ApiError(400, mensaje, campos));
+    }
+
+    /** SEG-01 / SEG-05: token de Google o de sesión no válido. El motivo exacto solo va a la auditoría. */
+    @ExceptionHandler(SesionService.SesionInvalidaException.class)
+    public ResponseEntity<ApiError> sesionInvalida(SesionService.SesionInvalidaException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ApiError(401, "Sesión requerida o expirada", Map.of()));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
