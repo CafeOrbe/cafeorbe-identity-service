@@ -85,7 +85,9 @@ management:
     tags:
       application: ${spring.application.name}
       # DIS-01 / OBS-01: réplica que reporta, para medir el reparto entre réplicas y ver cuál cae.
-      instancia: ${CONTAINER_APP_REPLICA_NAME:${HOSTNAME:local}}
+      # En el ambiente express de Container Apps no llega CONTAINER_APP_REPLICA_NAME y HOSTNAME es el mismo
+      # en todas las réplicas (adc-sandbox), así que cada réplica genera un id propio al arrancar.
+      instancia: ${CONTAINER_APP_REPLICA_NAME:${random.uuid}}
     distribution:
       # SEG-01 / OBS-01: el login con Google debe tardar menos de 3 s en p95. Sin buckets solo hay conteo, suma y
       # máximo, y Grafana no puede calcular el p95. Buckets fijos en los umbrales (no el histograma completo, que
